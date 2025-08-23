@@ -30,4 +30,7 @@ typedef struct ral_pkg {
 // version can be null if the newest should be installed
 ral_pkg_t *find_package(const char *name, const char *version);
 
+int install_package(ral_pkg_t *pkg);
+int install_local_tarball(const char *path, const char *root);
+
 #endif // PKG_H
