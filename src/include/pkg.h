@@ -1,6 +1,7 @@
 #ifndef PKG_H
 #define PKG_H
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <time.h>
 
@@ -21,7 +22,7 @@ typedef struct ral_pkg {
     char **dependencies;
 
     char *post_install_script_url;
-    char *repo_url; // from which repo it has been installed
+    char *repo_url;
 
     time_t uploaded;
     time_t last_changed;
@@ -31,6 +32,7 @@ typedef struct ral_pkg {
 ral_pkg_t *find_package(const char *name, const char *version);
 
 int install_package(ral_pkg_t *pkg);
-int install_local_tarball(const char *path, const char *root);
+void install_local_tarball(const char *path, const char *root);
+int install_local_binary_tar_gz(const char *path, const char *root);
 
 #endif // PKG_H

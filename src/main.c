@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <strings.h>
@@ -8,6 +9,8 @@
 
 #include <getopt.h>
 #include <unistd.h>
+
+#include <sys/stat.h>
 
 static int tarball;
 static char *root = NULL;
@@ -41,8 +44,18 @@ int main(int argc, char **argv) {
 
     if (geteuid() != 0) {
         fprintf(stderr,
-                ASCII_ERROR ">>> " ASCII_RESET "Please run ralsei as root!");
+                ASCII_ERROR ">>> " ASCII_RESET "Please run ralsei as root!\n");
         exit(EXIT_FAILURE);
+    }
+
+    struct stat st = {0};
+    if (stat("/var/lib/ralsei", &st) == -1) {
+        fprintf(stdout, ASCII_WARN ">>> " ASCII_RESET
+                                   "Ralsei has been run the first time on this "
+                                   "system. Creating /var/lib/ralsei\n");
+        mkdir("/var/lib/ralsei", 0755);
+        mkdir("/var/lib/ralsei/pkgs", 0755);
+        mkdir("/var/lib/ralsei/tmp", 0755);
     }
 
     int opt;

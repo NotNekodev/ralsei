@@ -13,13 +13,12 @@ TARGET := $(BIN_DIR)/ralsei
 all: $(TARGET)
 
 $(TARGET): $(OBJS)
-	mkdir -p $(BIN_DIR)
-	$(CC) $(CFLAGS) -o $@ $^
+	@mkdir -p $(BIN_DIR)
+	@$(CC) $(CFLAGS) -o $@ $^
 
-# Ensure object subdirectories exist
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
-	mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c -o $@ $<
+	@mkdir -p $(dir $@)
+	@$(CC) $(CFLAGS) -c -o $@ $<
 
 clean:
 	rm -rf $(OBJ_DIR) $(BIN_DIR) $(TARGET)
