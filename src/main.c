@@ -4,7 +4,10 @@
 #include <strings.h>
 
 #include "include/pkg.h"
+#include "include/util.h"
+
 #include <getopt.h>
+#include <unistd.h>
 
 static int tarball;
 static char *root = NULL;
@@ -36,6 +39,12 @@ int main(int argc, char **argv) {
         exit(EXIT_SUCCESS);
     }
 
+    if (geteuid() != 0) {
+        fprintf(stderr,
+                ASCII_ERROR ">>> " ASCII_RESET "Please run ralsei as root!");
+        exit(EXIT_FAILURE);
+    }
+
     int opt;
     int opt_idx = 0;
 
@@ -64,13 +73,16 @@ int main(int argc, char **argv) {
             root = optarg;
             break;
         default:
-            fprintf(stderr, "Try '%s --help' for more info.\n", argv[0]);
+            fprintf(stderr,
+                    ASCII_ERROR ">>> " ASCII_RESET
+                                "Ralsei didn't understand the argument: '%s'! "
+                                "Run him with --help for more information.\n",
+                    argv[optind]);
             exit(EXIT_FAILURE);
         }
     }
 
     for (int i = optind; i < argc; i++) {
-        printf("Positional argument %d: %s\n", i - optind, argv[i]);
         if (strcasecmp(argv[i], "install") == 0) {
             if (tarball) {
                 if (argv[i + 1] == NULL) {
@@ -83,6 +95,13 @@ int main(int argc, char **argv) {
                 printf("Installing package %s\n", argv[i + 1]);
             }
             i++;
+        } else {
+            fprintf(stderr,
+                    ASCII_ERROR
+                    ">>> " ASCII_RESET
+                    "Ralsei did not understand the command: '%s'!\n",
+                    argv[i]);
+            exit(EXIT_FAILURE);
         }
     }
 }

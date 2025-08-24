@@ -1,5 +1,6 @@
 #include "pkg.h"
 
+#include "util.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <threads.h>
@@ -8,18 +9,6 @@
 
 #include <sys/types.h>
 #include <sys/wait.h>
-
-#define ASCII_RESET   "\033[0m"
-#define ASCII_BOLD    "\033[1m"
-#define ASCII_GREEN   "\033[32m"
-#define ASCII_YELLOW  "\033[33m"
-#define ASCII_RED     "\033[31m"
-#define ASCII_DARKRED "\033[38;5;52m"
-#define CURSOR_HIDE   "\033[?25l"
-#define CURSOR_SHOW   "\033[?25h"
-
-#define ASCII_INFO  "\033[1;35m"
-#define ASCII_ERROR "\033[1;31m"
 
 ral_pkg_t *find_package(const char *name, const char *version) {
     // TODO
