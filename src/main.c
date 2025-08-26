@@ -100,13 +100,24 @@ int main(int argc, char **argv) {
             if (tarball) {
                 if (argv[i + 1] == NULL) {
                     fprintf(stderr,
-                            "Error: No path specified for the tarball.\n");
+                            ASCII_ERROR ">>> " ASCII_RESET
+                                        "No path specified for the tarball.\n");
                     exit(EXIT_FAILURE);
                 }
                 install_local_tarball(argv[i + 1], root);
             } else {
-                printf("Installing package %s\n", argv[i + 1]);
+                printf("TODO!\n");
+                exit(EXIT_FAILURE);
             }
+            i++;
+        } else if (strcasecmp(argv[i], "remove") == 0) {
+            if (argv[i + 1] == NULL) {
+                fprintf(stderr,
+                        ASCII_ERROR ">>> " ASCII_RESET
+                                    "No package name specified for removal.\n");
+                exit(EXIT_FAILURE);
+            }
+            uninstall_package(argv[i + 1]);
             i++;
         } else {
             fprintf(stderr,

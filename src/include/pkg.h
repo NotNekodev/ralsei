@@ -35,4 +35,6 @@ int install_package(ral_pkg_t *pkg);
 void install_local_tarball(const char *path, const char *root);
 int install_local_binary_tar_gz(const char *path, const char *root);
 
+int uninstall_package(const char *name);
+
 #endif // PKG_H

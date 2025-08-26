@@ -44,19 +44,18 @@ void install_local_tarball(const char *path, const char *root) {
 
     close(tmp_file_fd);
 
-    // get only the tar files name so chop of the path infront of it and the
-    // extension
-    char *tar_file_name = strrchr(read_buffer, '/');
-    if (tar_file_name) {
-        tar_file_name++;
-    } else {
-        tar_file_name = read_buffer;
-    }
+    char *filename = strrchr(path, '/');
+    if (filename)
+        filename++;
+    else
+        filename = path;
 
-    char *tar_file_ext = strrchr(tar_file_name, '.');
-    if (tar_file_ext) {
-        *tar_file_ext = '\0';
-    }
+    char tar_file_name[256];
+    strcpy(tar_file_name, filename);
+
+    char *ext = strstr(tar_file_name, ".tar.gz");
+    if (ext)
+        *ext = '\0';
 
     char buffer[256];
     struct stat st2 = {0};
@@ -268,4 +267,102 @@ int install_local_binary_tar_gz(const char *path, const char *root) {
     fflush(stdout);
 
     return tmp_filelist_fd;
+}
+
+int uninstall_package(const char *name) {
+    // find the pkg dir in /lib/var/ralsei/pkgs/name
+    char pkg_dir[1024];
+    snprintf(pkg_dir, sizeof(pkg_dir), "/var/lib/ralsei/pkgs/%s/", name);
+
+    struct stat st;
+    if (stat(pkg_dir, &st) != 0) {
+        perror("stat 1");
+        return -1;
+    }
+
+    // read files.list
+    char filelist_path[1040];
+    snprintf(filelist_path, sizeof(filelist_path), "%s/files.list", pkg_dir);
+
+    struct stat stfl;
+    if (stat(filelist_path, &stfl) != 0) {
+        perror("stat 2");
+        return -1;
+    }
+
+    // how big is the file alloc a buffer + 1 (for null termination)
+    char *buffer = malloc(stfl.st_size + 1);
+    if (!buffer) {
+        perror("malloc");
+        return 0;
+    }
+
+    // read the file into the buffer
+    int fd = open(filelist_path, O_RDONLY);
+    if (fd < 0) {
+        perror("open");
+        free(buffer);
+        return -1;
+    }
+
+    ssize_t n = read(fd, buffer, stfl.st_size);
+    if (n < 0) {
+        perror("read");
+        close(fd);
+        free(buffer);
+        return -1;
+    }
+
+    buffer[n] = '\0';
+
+    close(fd);
+
+    size_t line_count = 0;
+    for (ssize_t i = 0; i < n; i++) {
+        if (buffer[i] == '\n')
+            line_count++;
+    }
+
+    if (n > 0 && buffer[n - 1] != '\n') {
+        line_count++;
+    }
+
+    char **lines = malloc((line_count + 1) * sizeof(char *));
+    if (!lines) {
+        perror("malloc");
+        exit(1);
+    }
+
+    size_t idx  = 0;
+    char *start = buffer;
+
+    for (ssize_t i = 0; i < n; i++) {
+        if (buffer[i] == '\n') {
+            buffer[i]    = '\0';
+            lines[idx++] = start;
+            start        = &buffer[i + 1];
+        }
+    }
+    if (*start != '\0') {
+        lines[idx++] = start;
+    }
+
+    lines[idx] = NULL;
+
+    struct stat stat_for_line_files_only_one_because_i_love_my_life;
+    for (size_t i = 0; lines[i]; i++) {
+        if (stat(lines[i],
+                 &stat_for_line_files_only_one_because_i_love_my_life) == 0) {
+            if (S_ISREG(stat_for_line_files_only_one_because_i_love_my_life
+                            .st_mode) ||
+                S_ISLNK(stat_for_line_files_only_one_because_i_love_my_life
+                            .st_mode)) {
+                remove(lines[i]);
+            }
+        }
+    }
+
+    free(lines);
+    free(buffer);
+    return 0;
 }

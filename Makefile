@@ -1,5 +1,5 @@
 CC := gcc
-CFLAGS := -Wall -Wextra -O2
+CFLAGS := -Wall -Wextra -O2 -Wno-discarded-qualifiers -Wno-unused-parameter
 
 SRC_DIR := src
 OBJ_DIR := obj
