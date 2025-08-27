@@ -1,10 +1,11 @@
-#include "pkginfo.h"
+#include <core/pkginfo.h>
 
 #include <ctype.h>
-#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -167,7 +168,6 @@ pkg_info_t *parse_pkgbuild(const char *file_path) {
 
     pkg_info_var_t *var = pkg->vars;
     while (var) {
-        printf("Setting env var: %s=%s\n", var->name, var->value);
         setenv(var->name, var->value, 1);
         var = var->next;
     }
@@ -186,8 +186,6 @@ pkg_info_t *parse_pkgbuild(const char *file_path) {
 
     pkg_info_proc_t *proc = pkg->procs;
     while (proc) {
-        printf("PROC: %s\n", proc->proc_name);
-        printf("%s\n", proc->bash_code);
         proc = proc->next;
     }
 

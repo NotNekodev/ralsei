@@ -1,17 +1,18 @@
-#include "include/pkginfo.h"
 #define _GNU_SOURCE
+
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <strings.h>
 
-#include "include/pkg.h"
-#include "include/util.h"
+#include <core/pkg.h>
+#include <core/pkginfo.h>
+#include <util/util.h>
 
 #include <getopt.h>
-#include <unistd.h>
+#include <strings.h>
 
 #include <sys/stat.h>
+#include <unistd.h>
 
 static bool tarball = false;
 static bool local   = false;
@@ -76,9 +77,7 @@ int main(int argc, char **argv) {
            -1) {
         switch (opt) {
         case 'h':
-            printf("Usage: %s [-h|--help] action [-t|--tarball] package [if "
-                   "tarball: -r|--root <path>]\n",
-                   argv[0]);
+            printf("idk how to write a help text :^)\n");
             break;
         case 'v':
             printf("Version: 0.0.1\n");

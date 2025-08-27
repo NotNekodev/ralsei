@@ -1,20 +1,25 @@
-#include "pkg.h"
+#include "core/pkg.h"
 
-#include "pkginfo.h"
-#include "util.h"
+#include <util/util.h>
+
 #include <archive.h>
 #include <archive_entry.h>
-#include <fcntl.h>
+
+#include <core/pkginfo.h>
+
 #include <limits.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+
+#include <errno.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <threads.h>
-#include <time.h>
 #include <unistd.h>
 
 static int64_t tmp_filelist_counter    = 0;
@@ -34,7 +39,9 @@ static int copy_data(struct archive *ar, struct archive *aw) {
             return r;
         r = archive_write_data_block(aw, buff, size, offset);
         if (r != ARCHIVE_OK) {
-            fprintf(stderr, "archive_write_data_block error: %s\n",
+            fprintf(stderr,
+                    ASCII_ERROR ">>> " ASCII_RESET
+                                "Error opening archive: %s\n",
                     archive_error_string(aw));
             return r;
         }
@@ -75,7 +82,8 @@ int install_dotral_pkg(const char *path, const char *root) {
     archive_read_support_filter_zstd(a);
 
     if ((r = archive_read_open_filename(a, path, 10240))) {
-        fprintf(stderr, "Could not open %s: %s\n", path,
+        fprintf(stderr,
+                ASCII_ERROR ">>> " ASCII_RESET "Could not open %s: %s\n", path,
                 archive_error_string(a));
         return 1;
     }
@@ -91,7 +99,10 @@ int install_dotral_pkg(const char *path, const char *root) {
         if (r == ARCHIVE_EOF)
             break;
         if (r < ARCHIVE_OK)
-            fprintf(stderr, "%s\n", archive_error_string(a));
+            fprintf(stderr,
+                    ASCII_ERROR ">>> " ASCII_RESET
+                                "Could not read archive: %s\n",
+                    archive_error_string(a));
         if (r < ARCHIVE_WARN)
             return 1;
 
@@ -102,7 +113,10 @@ int install_dotral_pkg(const char *path, const char *root) {
 
         r = archive_write_header(ext, entry);
         if (r < ARCHIVE_OK)
-            fprintf(stderr, "%s\n", archive_error_string(ext));
+            fprintf(stderr,
+                    ASCII_ERROR ">>> " ASCII_RESET
+                                "Error writing archive header: %s\n",
+                    archive_error_string(ext));
         else if (archive_entry_size(entry) > 0) {
             const void *buff;
             size_t size;
@@ -113,19 +127,28 @@ int install_dotral_pkg(const char *path, const char *root) {
                 if (r == ARCHIVE_EOF)
                     break;
                 if (r < ARCHIVE_OK)
-                    fprintf(stderr, "%s\n", archive_error_string(a));
+                    fprintf(stderr,
+                            ASCII_ERROR ">>> " ASCII_RESET
+                                        "Error reading archive file: %s\n",
+                            archive_error_string(a));
                 if (r < ARCHIVE_WARN)
                     return 1;
                 r = archive_write_data_block(ext, buff, size, offset);
                 if (r < ARCHIVE_OK)
-                    fprintf(stderr, "%s\n", archive_error_string(ext));
+                    fprintf(stderr,
+                            ASCII_ERROR ">>> " ASCII_RESET
+                                        "Error reading archive file: %s\n",
+                            archive_error_string(ext));
                 if (r < ARCHIVE_WARN)
                     return 1;
             }
         }
         r = archive_write_finish_entry(ext);
         if (r < ARCHIVE_OK)
-            fprintf(stderr, "%s\n", archive_error_string(ext));
+            fprintf(stderr,
+                    ASCII_ERROR ">>> " ASCII_RESET
+                                "Error finishing archive entry: %s\n",
+                    archive_error_string(ext));
         if (r < ARCHIVE_WARN)
             return 1;
     }
@@ -149,8 +172,6 @@ int install_dotral_pkg(const char *path, const char *root) {
     if (extfile && strcmp(extfile, ".ral") == 0) {
         *extfile = '\0';
     }
-
-    printf("pkg_name: %s\n", ral_file_name);
 
     char pkgbuild_path_buffer[512];
     snprintf(pkgbuild_path_buffer, sizeof(pkgbuild_path_buffer),
@@ -183,10 +204,16 @@ int install_dotral_pkg(const char *path, const char *root) {
     if (deps_shell_pid == 0) {
         char *deps_argv[] = {"/bin/bash", "-c", deps->bash_code, NULL};
         execv(deps_argv[0], deps_argv);
-        perror("execv");
+        fprintf(stderr,
+                ASCII_ERROR ">>> " ASCII_RESET
+                            "Could not execute dependency shell: %s\n",
+                strerror(errno));
         exit(EXIT_FAILURE);
     } else if (deps_shell_pid < 0) {
-        perror("fork");
+        fprintf(stderr,
+                ASCII_ERROR ">>> " ASCII_RESET
+                            "Could not create dependency shell process: %s\n",
+                strerror(errno));
         return 1;
     } else {
         waitpid(deps_shell_pid, NULL, 0);
@@ -197,10 +224,16 @@ int install_dotral_pkg(const char *path, const char *root) {
         if (build_shell_pid == 0) {
             char *build_argv[] = {"/bin/bash", "-c", build->bash_code, NULL};
             execv(build_argv[0], build_argv);
-            perror("execv");
+            fprintf(stderr,
+                    ASCII_ERROR ">>> " ASCII_RESET
+                                "Could not execute build shell: %s\n",
+                    strerror(errno));
             exit(EXIT_FAILURE);
         } else if (build_shell_pid < 0) {
-            perror("fork");
+            fprintf(stderr,
+                    ASCII_ERROR ">>> " ASCII_RESET
+                                "Could not create build shell process: %s\n",
+                    strerror(errno));
             return 1;
         } else {
             waitpid(build_shell_pid, NULL, 0);
@@ -210,7 +243,6 @@ int install_dotral_pkg(const char *path, const char *root) {
         snprintf(binary_path_buffer, sizeof(binary_path_buffer),
                  "/tmp/ralsei/%ld/%s.tar.zst", tmp_ral_archive_counter,
                  ral_file_name);
-        printf("test");
         install_local_tarball(binary_path_buffer, root);
     }
 
@@ -219,16 +251,20 @@ int install_dotral_pkg(const char *path, const char *root) {
         char *post_install_argv[] = {"/bin/bash", "-c", post_install->bash_code,
                                      NULL};
         execv(post_install_argv[0], post_install_argv);
-        perror("execv");
+        fprintf(stderr,
+                ASCII_ERROR ">>> " ASCII_RESET
+                            "Could not execute post_install shell: %s\n",
+                strerror(errno));
         exit(EXIT_FAILURE);
     } else if (post_install_shell_pid < 0) {
-        perror("fork");
+        fprintf(stderr,
+                ASCII_ERROR ">>> " ASCII_RESET
+                            "Could not create post_install shell process: %s\n",
+                strerror(errno));
         return 1;
     } else {
         waitpid(post_install_shell_pid, NULL, 0);
     }
-
-    printf("Installed %s", ral_file_name);
 
     atomic_fetch_add(&tmp_ral_archive_counter, 1);
     return 0;
@@ -239,7 +275,10 @@ void install_local_tarball(const char *path, const char *root) {
 
     struct stat st;
     if (fstat(tmp_file_fd, &st) == -1) {
-        perror("fstat");
+        fprintf(stderr,
+                ASCII_ERROR ">>> " ASCII_RESET
+                            "Error while fstat'ing ''%s': %s\n",
+                path, strerror(errno));
         close(tmp_file_fd);
         return;
     }
@@ -285,7 +324,10 @@ void install_local_tarball(const char *path, const char *root) {
 
     int filelist = open(buffer, O_CREAT | O_RDWR, 0644);
     if (filelist == -1) {
-        perror("open");
+        fprintf(stderr,
+                ASCII_ERROR ">>> " ASCII_RESET
+                            "Could not create file list: %s\n",
+                strerror(errno));
         exit(EXIT_FAILURE);
     }
 
@@ -301,7 +343,10 @@ int install_local_binary_tar_zst(const char *path, const char *root) {
 
     char resolved_root[PATH_MAX];
     if (!realpath(root, resolved_root)) {
-        perror("realpath");
+        fprintf(stderr,
+                ASCII_ERROR ">>> " ASCII_RESET
+                            "Could not resolve root path: %s\n",
+                strerror(errno));
         return -1;
     }
     root = resolved_root;
@@ -316,8 +361,9 @@ int install_local_binary_tar_zst(const char *path, const char *root) {
     archive_read_support_format_all(a);
 
     if ((r = archive_read_open_filename(a, path, 10240))) {
-        fprintf(stderr, "archive_read_open_filename failed: %s\n",
-                archive_error_string(a));
+        fprintf(stderr,
+                ASCII_ERROR ">>> " ASCII_RESET "Error opening archive %s: %s\n",
+                path, strerror(errno));
         return -1;
     }
 
@@ -335,7 +381,10 @@ int install_local_binary_tar_zst(const char *path, const char *root) {
     int tmp_filelist_fd =
         open(tmp_filelist_name_buffer, O_CREAT | O_RDWR, 0644);
     if (tmp_filelist_fd < 0) {
-        perror("open");
+        fprintf(stderr,
+                ASCII_ERROR ">>> " ASCII_RESET
+                            "Could not create temporary file list: %s\n",
+                strerror(errno));
         return -1;
     }
 
@@ -350,13 +399,17 @@ int install_local_binary_tar_zst(const char *path, const char *root) {
 
         r = archive_write_header(ext, entry);
         if (r != ARCHIVE_OK) {
-            fprintf(stderr, "archive_write_header error: %s\n",
+            fprintf(stderr,
+                    ASCII_ERROR ">>> " ASCII_RESET
+                                "archive_write_header error: %s\n",
                     archive_error_string(ext));
         } else {
             copy_data(a, ext);
             r = archive_write_finish_entry(ext);
             if (r != ARCHIVE_OK) {
-                fprintf(stderr, "archive_write_finish_entry error: %s\n",
+                fprintf(stderr,
+                        ASCII_ERROR ">>> " ASCII_RESET
+                                    "archive_write_finish_entry error: %s\n",
                         archive_error_string(ext));
             }
         }
@@ -375,7 +428,10 @@ int uninstall_package(const char *name) {
     snprintf(pkg_dir, sizeof(pkg_dir), "/var/lib/ralsei/pkgs/%s/", name);
     struct stat st;
     if (stat(pkg_dir, &st) != 0) {
-        perror("stat 1");
+        fprintf(stderr,
+                ASCII_ERROR ">>> " ASCII_RESET
+                            "Error stat'ing package directory: %s\n",
+                strerror(errno));
         return -1;
     }
 
@@ -383,26 +439,34 @@ int uninstall_package(const char *name) {
     snprintf(filelist_path, sizeof(filelist_path), "%s/files.list", pkg_dir);
     struct stat stfl;
     if (stat(filelist_path, &stfl) != 0) {
-        perror("stat 2");
+        fprintf(stderr,
+                ASCII_ERROR ">>> " ASCII_RESET "Error stat'ing file list: %s\n",
+                strerror(errno));
         return -1;
     }
 
     char *buffer = malloc(stfl.st_size + 1);
     if (!buffer) {
-        perror("malloc");
+        fprintf(stderr,
+                ASCII_ERROR ">>> " ASCII_RESET "Error allocating memory: %s\n",
+                strerror(errno));
         return -1;
     }
 
     int fd = open(filelist_path, O_RDONLY);
     if (fd < 0) {
-        perror("open");
+        fprintf(stderr,
+                ASCII_ERROR ">>> " ASCII_RESET "Error opening file list: %s\n",
+                strerror(errno));
         free(buffer);
         return -1;
     }
 
     ssize_t n = read(fd, buffer, stfl.st_size);
     if (n < 0) {
-        perror("read");
+        fprintf(stderr,
+                ASCII_ERROR ">>> " ASCII_RESET "Error reading file list: %s\n",
+                strerror(errno));
         close(fd);
         free(buffer);
         return -1;
@@ -422,7 +486,9 @@ int uninstall_package(const char *name) {
 
     char **lines = malloc((line_count + 1) * sizeof(char *));
     if (!lines) {
-        perror("malloc");
+        fprintf(stderr,
+                ASCII_ERROR ">>> " ASCII_RESET "Error allocating memory: %s\n",
+                strerror(errno));
         exit(1);
     }
 
