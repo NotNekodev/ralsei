@@ -1,3 +1,4 @@
+#include "include/pkginfo.h"
 #define _GNU_SOURCE
 #include <stdbool.h>
 #include <stdio.h>
@@ -12,7 +13,9 @@
 
 #include <sys/stat.h>
 
-static int tarball;
+static bool tarball = false;
+static bool local   = false;
+
 static char *root = NULL;
 
 int main(int argc, char **argv) {
@@ -66,9 +69,10 @@ int main(int argc, char **argv) {
         {"version", no_argument, NULL, 'v'},
         {"tarball", no_argument, NULL, 't'},
         {"root", required_argument, NULL, 'r'},
+        {"local", no_argument, NULL, 'l'},
         {0, 0, 0, 0}};
 
-    while ((opt = getopt_long(argc, argv, "hvtr:", long_options, &opt_idx)) !=
+    while ((opt = getopt_long(argc, argv, "hvtlr:", long_options, &opt_idx)) !=
            -1) {
         switch (opt) {
         case 'h':
@@ -80,7 +84,10 @@ int main(int argc, char **argv) {
             printf("Version: 0.0.1\n");
             break;
         case 't':
-            tarball = 1;
+            tarball = true;
+            break;
+        case 'l':
+            local = true;
             break;
         case 'r':
             root = optarg;
@@ -106,8 +113,12 @@ int main(int argc, char **argv) {
                 }
                 install_local_tarball(argv[i + 1], root);
             } else {
-                printf("TODO!\n");
-                exit(EXIT_FAILURE);
+                if (local) {
+                    install_dotral_pkg(argv[i + 1], root);
+                } else {
+                    fprintf(stderr, "TODO!");
+                    exit(EXIT_FAILURE);
+                }
             }
             i++;
         } else if (strcasecmp(argv[i], "remove") == 0) {
@@ -118,6 +129,16 @@ int main(int argc, char **argv) {
                 exit(EXIT_FAILURE);
             }
             uninstall_package(argv[i + 1]);
+            i++;
+
+        } else if (strcasecmp(argv[i], "parsepkgbuild") == 0) {
+            if (argv[i + 1] == NULL) {
+                fprintf(stderr,
+                        ASCII_ERROR ">>> " ASCII_RESET
+                                    "No file path specified for parsing.\n");
+                exit(EXIT_FAILURE);
+            }
+            parse_pkgbuild(argv[i + 1]);
             i++;
         } else {
             fprintf(stderr,

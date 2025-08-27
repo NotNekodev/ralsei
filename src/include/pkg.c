@@ -1,6 +1,9 @@
 #include "pkg.h"
 
+#include "pkginfo.h"
 #include "util.h"
+#include <archive.h>
+#include <archive_entry.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <stdbool.h>
@@ -14,21 +17,226 @@
 #include <time.h>
 #include <unistd.h>
 
-static int64_t tmp_filelist_counter = 0;
+static int64_t tmp_filelist_counter    = 0;
+static int64_t tmp_ral_archive_counter = 0;
 
-ral_pkg_t *find_package(const char *name, const char *version) {
+static int copy_data(struct archive *ar, struct archive *aw) {
+    const void *buff;
+    size_t size;
+    int64_t offset;
+    int r;
+
+    for (;;) {
+        r = archive_read_data_block(ar, &buff, &size, &offset);
+        if (r == ARCHIVE_EOF)
+            return ARCHIVE_OK;
+        if (r != ARCHIVE_OK)
+            return r;
+        r = archive_write_data_block(aw, buff, size, offset);
+        if (r != ARCHIVE_OK) {
+            fprintf(stderr, "archive_write_data_block error: %s\n",
+                    archive_error_string(aw));
+            return r;
+        }
+    }
+}
+
+void *find_package(const char *name, const char *version) {
     (void)name;
     (void)version;
-
     return NULL;
 }
 
-int install_local_dotral_pkg(const char *path) {
+int install_package(const char *pkg, const char *version) {
+    return 0;
+}
+
+int install_dotral_pkg(const char *path, const char *root) {
+    // make libarchive unarchive the .tar.zst into
+    // /tmp/ralsei/{tmp_counter_thingy}
+
+    if (root == NULL) {
+        root = "/";
+    }
+
+    struct archive *a;
+    struct archive *ext;
+    struct archive_entry *entry;
+    int r;
+
+    char dest[512];
+    snprintf(dest, sizeof(dest), "/tmp/ralsei/%ld", tmp_ral_archive_counter);
+
+    mkdir(dest, 0755);
+
+    a = archive_read_new();
+
+    archive_read_support_format_tar(a);
+    archive_read_support_filter_zstd(a);
+
+    if ((r = archive_read_open_filename(a, path, 10240))) {
+        fprintf(stderr, "Could not open %s: %s\n", path,
+                archive_error_string(a));
+        return 1;
+    }
+
+    ext = archive_write_disk_new();
+    archive_write_disk_set_options(
+        ext, ARCHIVE_EXTRACT_TIME | ARCHIVE_EXTRACT_PERM | ARCHIVE_EXTRACT_ACL |
+                 ARCHIVE_EXTRACT_FFLAGS);
+    archive_write_disk_set_standard_lookup(ext);
+
+    while (1) {
+        r = archive_read_next_header(a, &entry);
+        if (r == ARCHIVE_EOF)
+            break;
+        if (r < ARCHIVE_OK)
+            fprintf(stderr, "%s\n", archive_error_string(a));
+        if (r < ARCHIVE_WARN)
+            return 1;
+
+        const char *current_path = archive_entry_pathname(entry);
+        char fullpath[4096];
+        snprintf(fullpath, sizeof(fullpath), "%s/%s", dest, current_path);
+        archive_entry_set_pathname(entry, fullpath);
+
+        r = archive_write_header(ext, entry);
+        if (r < ARCHIVE_OK)
+            fprintf(stderr, "%s\n", archive_error_string(ext));
+        else if (archive_entry_size(entry) > 0) {
+            const void *buff;
+            size_t size;
+            la_int64_t offset;
+
+            while (1) {
+                r = archive_read_data_block(a, &buff, &size, &offset);
+                if (r == ARCHIVE_EOF)
+                    break;
+                if (r < ARCHIVE_OK)
+                    fprintf(stderr, "%s\n", archive_error_string(a));
+                if (r < ARCHIVE_WARN)
+                    return 1;
+                r = archive_write_data_block(ext, buff, size, offset);
+                if (r < ARCHIVE_OK)
+                    fprintf(stderr, "%s\n", archive_error_string(ext));
+                if (r < ARCHIVE_WARN)
+                    return 1;
+            }
+        }
+        r = archive_write_finish_entry(ext);
+        if (r < ARCHIVE_OK)
+            fprintf(stderr, "%s\n", archive_error_string(ext));
+        if (r < ARCHIVE_WARN)
+            return 1;
+    }
+
+    archive_read_close(a);
+    archive_read_free(a);
+    archive_write_close(ext);
+    archive_write_free(ext);
+
+    const char *filename = strrchr(path, '/');
+    if (filename)
+        filename++;
+    else
+        filename = path;
+
+    char ral_file_name[256];
+    strncpy(ral_file_name, filename, sizeof(ral_file_name) - 1);
+    ral_file_name[sizeof(ral_file_name) - 1] = '\0';
+
+    char *extfile = strrchr(ral_file_name, '.');
+    if (extfile && strcmp(extfile, ".ral") == 0) {
+        *extfile = '\0';
+    }
+
+    printf("pkg_name: %s\n", ral_file_name);
+
+    char pkgbuild_path_buffer[512];
+    snprintf(pkgbuild_path_buffer, sizeof(pkgbuild_path_buffer),
+             "/tmp/ralsei/%ld/PKGBUILD", tmp_ral_archive_counter);
+
+    pkg_info_t *pkg_info = parse_pkgbuild(pkgbuild_path_buffer);
+
+    // loop over every proc and find "deps" and "post_install" proc is a linked
+    // list
+    pkg_info_proc_t *deps         = NULL;
+    pkg_info_proc_t *post_install = NULL;
+    pkg_info_proc_t *build        = NULL;
+
+    pkg_info_proc_t *current = pkg_info->procs;
+    while (current) {
+        if (strcmp(current->proc_name, "deps") == 0) {
+            deps = current;
+        } else if (strcmp(current->proc_name, "post_install") == 0) {
+            post_install = current;
+        }
+
+        if (pkg_info->is_source_pkg &&
+            strcmp(current->proc_name, "build") == 0) {
+            build = current;
+        }
+        current = current->next;
+    }
+
+    pid_t deps_shell_pid = fork();
+    if (deps_shell_pid == 0) {
+        char *deps_argv[] = {"/bin/bash", "-c", deps->bash_code, NULL};
+        execv(deps_argv[0], deps_argv);
+        perror("execv");
+        exit(EXIT_FAILURE);
+    } else if (deps_shell_pid < 0) {
+        perror("fork");
+        return 1;
+    } else {
+        waitpid(deps_shell_pid, NULL, 0);
+    }
+
+    if (pkg_info->is_source_pkg && build) {
+        pid_t build_shell_pid = fork();
+        if (build_shell_pid == 0) {
+            char *build_argv[] = {"/bin/bash", "-c", build->bash_code, NULL};
+            execv(build_argv[0], build_argv);
+            perror("execv");
+            exit(EXIT_FAILURE);
+        } else if (build_shell_pid < 0) {
+            perror("fork");
+            return 1;
+        } else {
+            waitpid(build_shell_pid, NULL, 0);
+        }
+    } else {
+        char binary_path_buffer[512];
+        snprintf(binary_path_buffer, sizeof(binary_path_buffer),
+                 "/tmp/ralsei/%ld/%s.tar.zst", tmp_ral_archive_counter,
+                 ral_file_name);
+        printf("test");
+        install_local_tarball(binary_path_buffer, root);
+    }
+
+    pid_t post_install_shell_pid = fork();
+    if (post_install_shell_pid == 0) {
+        char *post_install_argv[] = {"/bin/bash", "-c", post_install->bash_code,
+                                     NULL};
+        execv(post_install_argv[0], post_install_argv);
+        perror("execv");
+        exit(EXIT_FAILURE);
+    } else if (post_install_shell_pid < 0) {
+        perror("fork");
+        return 1;
+    } else {
+        waitpid(post_install_shell_pid, NULL, 0);
+    }
+
+    printf("Installed %s", ral_file_name);
+
+    atomic_fetch_add(&tmp_ral_archive_counter, 1);
     return 0;
 }
 
 void install_local_tarball(const char *path, const char *root) {
-    int tmp_file_fd = install_local_binary_tar_gz(path, root);
+    int tmp_file_fd = install_local_binary_tar_zst(path, root);
+
     struct stat st;
     if (fstat(tmp_file_fd, &st) == -1) {
         perror("fstat");
@@ -40,6 +248,7 @@ void install_local_tarball(const char *path, const char *root) {
 
     char read_buffer[st.st_size + 1];
     read(tmp_file_fd, read_buffer, st.st_size);
+
     read_buffer[st.st_size] = '\0';
 
     close(tmp_file_fd);
@@ -48,7 +257,7 @@ void install_local_tarball(const char *path, const char *root) {
     if (filename)
         filename++;
     else
-        filename = path;
+        filename = strdup(path);
 
     char tar_file_name[256];
     strcpy(tar_file_name, filename);
@@ -71,9 +280,9 @@ void install_local_tarball(const char *path, const char *root) {
 
     mkdir(buffer, 0755);
 
-    // we create <dir>/files.list and put the tar output there
     snprintf(buffer, sizeof(buffer), "/var/lib/ralsei/pkgs/%s/files.list",
              tar_file_name);
+
     int filelist = open(buffer, O_CREAT | O_RDWR, 0644);
     if (filelist == -1) {
         perror("open");
@@ -81,10 +290,11 @@ void install_local_tarball(const char *path, const char *root) {
     }
 
     write(filelist, read_buffer, st.st_size);
+
     close(filelist);
 }
 
-int install_local_binary_tar_gz(const char *path, const char *root) {
+int install_local_binary_tar_zst(const char *path, const char *root) {
     if (root == NULL) {
         root = "/";
     }
@@ -96,146 +306,26 @@ int install_local_binary_tar_gz(const char *path, const char *root) {
     }
     root = resolved_root;
 
-    int pipefd[2];
-    pipe(pipefd);
+    struct archive *a;
+    struct archive *ext;
+    struct archive_entry *entry;
+    int r;
 
-    pid_t tar_pid = fork();
-    if (tar_pid == 0) {
-        close(pipefd[0]);
-        dup2(pipefd[1], STDOUT_FILENO);
-        dup2(pipefd[1], STDERR_FILENO);
-        close(pipefd[1]);
-        execlp("tar", "tar", "-xvzf", path, "-C", root, "--keep-old-files",
-               NULL);
-        perror("Error executing tar subprocess");
-        exit(EXIT_FAILURE);
-    } else if (tar_pid < 0) {
-        perror("Error creating tar subprocess");
+    a = archive_read_new();
+    archive_read_support_filter_all(a);
+    archive_read_support_format_all(a);
+
+    if ((r = archive_read_open_filename(a, path, 10240))) {
+        fprintf(stderr, "archive_read_open_filename failed: %s\n",
+                archive_error_string(a));
         return -1;
     }
-    close(pipefd[1]);
 
-    int status;
-    const char spinner[] = "|/-\\";
-    int rotate_counter   = 0;
-    int elapsed          = 0;
-
-    printf(CURSOR_HIDE);
-    fflush(stdout);
-
-    while (1) {
-        pid_t ret = waitpid(tar_pid, &status, WNOHANG);
-        if (ret == -1) {
-            perror("waitpid");
-            break;
-        } else if (ret == 0) {
-            const char *color_spinner;
-            const char *color_text = ASCII_RESET;
-            if (elapsed < 5) {
-                color_spinner = ASCII_BOLD ASCII_GREEN;
-            } else if (elapsed < 10) {
-                color_spinner = ASCII_BOLD ASCII_YELLOW;
-            } else if (elapsed < 15) {
-                color_spinner = ASCII_BOLD ASCII_RED;
-            } else {
-                color_spinner = ASCII_BOLD ASCII_DARKRED;
-                color_text    = ASCII_BOLD ASCII_DARKRED;
-            }
-            printf("%s%c%s Installing \"%s\" -> \"%s\"%s\r", color_spinner,
-                   spinner[rotate_counter % 4], color_text, path, root,
-                   ASCII_RESET);
-            fflush(stdout);
-            rotate_counter++;
-            sleep(1);
-            elapsed++;
-        } else {
-            if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
-                printf("\r                                 \r" ASCII_INFO
-                       ">>> " ASCII_RESET "Installed \"%s\" -> \"%s\"\n",
-                       path, root);
-            } else {
-                printf("\r                                 \r" ASCII_ERROR
-                       ">>> " ASCII_RESET "Error installing \"%s\"\n",
-                       path);
-            }
-            break;
-        }
-    }
-
-    size_t lines_size  = 16;
-    size_t lines_count = 0;
-    char **lines       = malloc(lines_size * sizeof(char *));
-    if (!lines) {
-        perror("malloc");
-        exit(1);
-    }
-
-    size_t bufsize = 128;
-    size_t buflen  = 0;
-    char *buffer   = malloc(bufsize);
-    if (!buffer) {
-        perror("malloc");
-        exit(1);
-    }
-
-    char c;
-    ssize_t n;
-    while ((n = read(pipefd[0], &c, 1)) > 0) {
-        if (buflen + 1 >= bufsize) {
-            bufsize *= 2;
-            buffer   = realloc(buffer, bufsize);
-            if (!buffer) {
-                perror("realloc");
-                exit(1);
-            }
-        }
-        buffer[buflen++] = c;
-        if (c == '\n') {
-            buffer[buflen - 1] = '\0';
-            if (lines_count >= lines_size) {
-                lines_size *= 2;
-                lines       = realloc(lines, lines_size * sizeof(char *));
-                if (!lines) {
-                    perror("realloc");
-                    exit(1);
-                }
-            }
-            lines[lines_count] = malloc(buflen);
-            memcpy(lines[lines_count], buffer, buflen);
-            lines_count++;
-            buflen = 0;
-        }
-    }
-
-    if (buflen > 0) {
-        buffer[buflen] = '\0';
-        if (lines_count >= lines_size) {
-            lines_size *= 2;
-            lines       = realloc(lines, lines_size * sizeof(char *));
-            if (!lines) {
-                perror("realloc");
-                exit(1);
-            }
-        }
-        lines[lines_count] = malloc(buflen + 1);
-        memcpy(lines[lines_count], buffer, buflen + 1);
-        lines_count++;
-    }
-
-    free(buffer);
-    close(pipefd[0]);
-
-    for (size_t i = 0; i < lines_count; i++) {
-        const char *file_part = lines[i];
-        if (strncmp(file_part, "./", 2) == 0) {
-            file_part += 2;
-        }
-        char *real_path = malloc(strlen(root) + strlen(file_part) + 2);
-        sprintf(real_path, "%s/%s", root, file_part);
-        free(lines[i]);
-        lines[i] = real_path;
-        // printf("  - %s\n", lines[i]);
-    }
+    ext = archive_write_disk_new();
+    archive_write_disk_set_options(
+        ext, ARCHIVE_EXTRACT_TIME | ARCHIVE_EXTRACT_PERM | ARCHIVE_EXTRACT_ACL |
+                 ARCHIVE_EXTRACT_FFLAGS);
+    archive_write_disk_set_standard_lookup(ext);
 
     char tmp_filelist_name_buffer[256];
     snprintf(tmp_filelist_name_buffer, sizeof(tmp_filelist_name_buffer),
@@ -244,60 +334,65 @@ int install_local_binary_tar_gz(const char *path, const char *root) {
 
     int tmp_filelist_fd =
         open(tmp_filelist_name_buffer, O_CREAT | O_RDWR, 0644);
-
     if (tmp_filelist_fd < 0) {
         perror("open");
-        exit(1);
+        return -1;
     }
 
-    // write lines to the tmp_file
-    for (size_t i = 0; i < lines_count; i++) {
-        write(tmp_filelist_fd, lines[i], strlen(lines[i]));
-        write(tmp_filelist_fd, "\n", 1);
+    while ((r = archive_read_next_header(a, &entry)) == ARCHIVE_OK) {
+        const char *current_file = archive_entry_pathname(entry);
+
+        char fullpath[PATH_MAX];
+        snprintf(fullpath, sizeof(fullpath), "%s/%s", root, current_file);
+        archive_entry_set_pathname(entry, fullpath);
+
+        dprintf(tmp_filelist_fd, "%s\n", fullpath);
+
+        r = archive_write_header(ext, entry);
+        if (r != ARCHIVE_OK) {
+            fprintf(stderr, "archive_write_header error: %s\n",
+                    archive_error_string(ext));
+        } else {
+            copy_data(a, ext);
+            r = archive_write_finish_entry(ext);
+            if (r != ARCHIVE_OK) {
+                fprintf(stderr, "archive_write_finish_entry error: %s\n",
+                        archive_error_string(ext));
+            }
+        }
     }
 
-    for (size_t i = 0; i < lines_count; i++) {
-        free(lines[i]);
-    }
-    free(lines);
-
-    wait(NULL);
-
-    printf(CURSOR_SHOW);
-    fflush(stdout);
+    archive_read_close(a);
+    archive_read_free(a);
+    archive_write_close(ext);
+    archive_write_free(ext);
 
     return tmp_filelist_fd;
 }
 
 int uninstall_package(const char *name) {
-    // find the pkg dir in /lib/var/ralsei/pkgs/name
     char pkg_dir[1024];
     snprintf(pkg_dir, sizeof(pkg_dir), "/var/lib/ralsei/pkgs/%s/", name);
-
     struct stat st;
     if (stat(pkg_dir, &st) != 0) {
         perror("stat 1");
         return -1;
     }
 
-    // read files.list
     char filelist_path[1040];
     snprintf(filelist_path, sizeof(filelist_path), "%s/files.list", pkg_dir);
-
     struct stat stfl;
     if (stat(filelist_path, &stfl) != 0) {
         perror("stat 2");
         return -1;
     }
 
-    // how big is the file alloc a buffer + 1 (for null termination)
     char *buffer = malloc(stfl.st_size + 1);
     if (!buffer) {
         perror("malloc");
-        return 0;
+        return -1;
     }
 
-    // read the file into the buffer
     int fd = open(filelist_path, O_RDONLY);
     if (fd < 0) {
         perror("open");
@@ -314,9 +409,7 @@ int uninstall_package(const char *name) {
     }
 
     buffer[n] = '\0';
-
     close(fd);
-
     size_t line_count = 0;
     for (ssize_t i = 0; i < n; i++) {
         if (buffer[i] == '\n')
@@ -335,7 +428,6 @@ int uninstall_package(const char *name) {
 
     size_t idx  = 0;
     char *start = buffer;
-
     for (ssize_t i = 0; i < n; i++) {
         if (buffer[i] == '\n') {
             buffer[i]    = '\0';
@@ -343,20 +435,23 @@ int uninstall_package(const char *name) {
             start        = &buffer[i + 1];
         }
     }
+
     if (*start != '\0') {
         lines[idx++] = start;
     }
 
     lines[idx] = NULL;
-
     struct stat stat_for_line_files_only_one_because_i_love_my_life;
     for (size_t i = 0; lines[i]; i++) {
         if (stat(lines[i],
                  &stat_for_line_files_only_one_because_i_love_my_life) == 0) {
             if (S_ISREG(stat_for_line_files_only_one_because_i_love_my_life
-                            .st_mode) ||
-                S_ISLNK(stat_for_line_files_only_one_because_i_love_my_life
                             .st_mode)) {
+                remove(lines[i]);
+            } else if (S_ISLNK(
+                           stat_for_line_files_only_one_because_i_love_my_life
+                               .st_mode)) {
+                unlink(lines[i]);
                 remove(lines[i]);
             }
         }
@@ -364,5 +459,7 @@ int uninstall_package(const char *name) {
 
     free(lines);
     free(buffer);
+
+    rmdir(pkg_dir);
     return 0;
 }

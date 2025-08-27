@@ -3,37 +3,14 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include <time.h>
-
-#define PKG_SUPPORTS_X64 (1 << 0)
-#define PKG_SUPPORTS_X86 (1 << 1)
-#define PKG_SUPPORTS_ARM (1 << 2)
-
-typedef struct ral_pkg {
-    char *name;
-    char *version;
-    char *description;
-
-    uint8_t supported_arches_bitmask;
-
-    char *author;
-    char *license;
-
-    char **dependencies;
-
-    char *post_install_script_url;
-    char *repo_url;
-
-    time_t uploaded;
-    time_t last_changed;
-} ral_pkg_t;
 
 // version can be null if the newest should be installed
-ral_pkg_t *find_package(const char *name, const char *version);
+void *find_package(const char *name, const char *version);
 
-int install_package(ral_pkg_t *pkg);
+int install_package(const char *pkg, const char *version);
+int install_dotral_pkg(const char *path, const char *root);
 void install_local_tarball(const char *path, const char *root);
-int install_local_binary_tar_gz(const char *path, const char *root);
+int install_local_binary_tar_zst(const char *path, const char *root);
 
 int uninstall_package(const char *name);
 

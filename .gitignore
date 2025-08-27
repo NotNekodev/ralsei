@@ -1,4 +1,10 @@
 obj/
 bin/
 test/
+test_for_.ral_files/
 *.tar.gz
+*.tar.zst
+compile_commands.json
+.cache/
+iproute2/
+*.ral

@@ -1,5 +1,6 @@
 CC := gcc
-CFLAGS := -Wall -Wextra -O2 -Wno-discarded-qualifiers -Wno-unused-parameter
+CFLAGS := -Wall -Wextra -O2 -Wno-discarded-qualifiers -Wno-unused-parameter -I./src/include
+LDFLAGS := -larchive
 
 SRC_DIR := src
 OBJ_DIR := obj
@@ -14,7 +15,7 @@ all: $(TARGET)
 
 $(TARGET): $(OBJS)
 	@mkdir -p $(BIN_DIR)
-	@$(CC) $(CFLAGS) -o $@ $^
+	@$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
 	@mkdir -p $(dir $@)
