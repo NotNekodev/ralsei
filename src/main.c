@@ -23,12 +23,15 @@ int main(int argc, char **argv) {
     if (argc < 2) {
         printf("###############################################################"
                "##########\n");
-        printf("#* I'll do anything for you...                                 "
-               "         #\n");
-        printf("#* Well if that anything is installing, removing               "
-               "         #\n");
-        printf("#* Or searching packages !                                     "
-               "         #\n");
+        printf(
+            "# * I'll do anything for you...                                 "
+            "         #\n");
+        printf(
+            "# * Well if that anything is installing, removing               "
+            "         #\n");
+        printf(
+            "# * Or searching packages !                                     "
+            "         #\n");
         printf("###############################################################"
                "##########\n");
         printf(""
